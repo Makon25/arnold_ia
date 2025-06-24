@@ -1,0 +1,67 @@
+import cv2
+from datetime import datetime
+import time
+import os
+
+# === Configuration ===
+
+output_dir1 = "/Users/macbookair/Desktop/dossier_imag_test/CH"
+output_dir2 = "/Users/macbookair/Desktop/dossier_imag_test/CL1"
+output_dir3 = "/Users/macbookair/Desktop/dossier_imag_test/CL2"
+output_dir4 = "/Users/macbookair/Desktop/dossier_imag_test/CL3"
+os.makedirs(output_dir1, exist_ok=True)
+os.makedirs(output_dir2, exist_ok=True)
+os.makedirs(output_dir3, exist_ok=True)
+os.makedirs(output_dir4, exist_ok=True)
+datemins = datetime.now().strftime("%d%m%y-%H%M")
+
+# Temps d'attente (en secondes) pour chaque prise
+delays = {
+    "Corps_Haut": 1,
+    "Corps_Latéral1": 8,
+    "Corps_Latéral2": 9,
+    "Corps_Latéral3": 9
+}
+
+# === Fonction de capture ===
+def take_photo(filename, rotate180=False):
+    cap = cv2.VideoCapture(0)
+    time.sleep(1)
+    ret, frame = cap.read()
+    if ret:
+        if rotate180:
+            frame = cv2.rotate(frame, cv2.ROTATE_180)
+        cv2.imwrite(filename, frame)
+        print(f"✅ Photo enregistrée : {filename}")
+    else:
+        print("❌ Erreur lors de la capture.")
+    cap.release()
+
+# === Fonction principale ===
+print("▶️ Lancement de la séquence photo automatisée...\n")
+
+# Corps Haut
+print(f"⏳ Attente de {delays['Corps_Haut']}s pour capture : Corps_Haut")
+time.sleep(delays['Corps_Haut'])
+filename1 = f"{output_dir1}/Corps_Haut_{datemins}.jpg"
+take_photo(filename1)
+
+# Corps Latéral 1
+print(f"⏳ Attente de {delays['Corps_Latéral1']}s pour capture : Corps_Latéral1")
+time.sleep(delays['Corps_Latéral1'])
+filename2 = f"{output_dir2}/Corps_Latéral1_{datemins}.jpg"
+take_photo(filename2, rotate180=True)
+
+# Corps Latéral 2
+print(f"⏳ Attente de {delays['Corps_Latéral2']}s pour capture : Corps_Latéral2")
+time.sleep(delays['Corps_Latéral2'])
+filename3 = f"{output_dir3}/Corps_Latéral2_{datemins}.jpg"
+take_photo(filename3, rotate180=True)
+
+# Corps Latéral 3
+print(f"⏳ Attente de {delays['Corps_Latéral3']}s pour capture : Corps_Latéral3")
+time.sleep(delays['Corps_Latéral3'])
+filename4 = f"{output_dir4}/Corps_Latéral3_{datemins}.jpg"
+take_photo(filename4, rotate180=True)
+
+print("\n✅ Toutes les photos ont été capturées automatiquement avec les délais définis.")

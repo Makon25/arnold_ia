@@ -1,0 +1,59 @@
+import cv2
+from datetime import datetime
+import time
+import os
+
+# === Configuration ===
+output_dirs = {
+    "Corps_Haut": "/Users/macbookair/Desktop/dossier_imag_test/CH",
+    "Corps_Latéral1": "/Users/macbookair/Desktop/dossier_imag_test/CL1",
+    "Corps_Latéral2": "/Users/macbookair/Desktop/dossier_imag_test/CL2",
+    "Corps_Latéral3": "/Users/macbookair/Desktop/dossier_imag_test/CL3"
+}
+for path in output_dirs.values():
+    os.makedirs(path, exist_ok=True)
+
+# Temps d'attente (en secondes) pour chaque prise
+delays = {
+    "Corps_Haut": 1,
+    "Corps_Latéral1": 8,
+    "Corps_Latéral2": 9,
+    "Corps_Latéral3": 9
+}
+
+# === Fonction de capture ===
+def take_photo(view_name, output_dir, rotate180=False):
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        print("❌ Impossible d'ouvrir la caméra.")
+        return
+    time.sleep(1)
+    ret, frame = cap.read()
+    if ret:
+        if rotate180:
+            frame = cv2.rotate(frame, cv2.ROTATE_180)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = os.path.join(output_dir, f"{view_name}_{timestamp}.jpg")
+        cv2.imwrite(filename, frame)
+        print(f"✅ Photo enregistrée : {filename}")
+    else:
+        print(f"❌ Erreur lors de la capture de {view_name}")
+    cap.release()
+
+# === Fonction principale ===
+print("▶️ Lancement de la séquence photo automatisée...\n")
+
+# Liste des vues avec option de rotation
+sequence = [
+    ("Corps_Haut", False),
+    ("Corps_Latéral1", True),
+    ("Corps_Latéral2", True),
+    ("Corps_Latéral3", True)
+]
+
+for view_name, rotate in sequence:
+    print(f"⏳ Attente de {delays[view_name]}s pour capture : {view_name}")
+    time.sleep(delays[view_name])
+    take_photo(view_name, output_dirs[view_name], rotate)
+
+print("\n✅ Toutes les photos ont été capturées automatiquement avec les noms normalisés.")

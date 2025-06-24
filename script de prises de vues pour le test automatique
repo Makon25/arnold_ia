@@ -1,0 +1,84 @@
+import cv2
+from datetime import datetime
+import time
+import os
+
+# === Configuration des répertoires ===
+output_dirs = {
+    "Corps_Haut": "/Users/macbookair/Desktop/dossier_stockage_images_de_test/CH",
+    "Corps_Latéral1": "/Users/macbookair/Desktop/dossier_stockage_images_de_test/CL1",
+    "Corps_Latéral2": "/Users/macbookair/Desktop/dossier_stockage_images_de_test/CL2",
+    "Corps_Latéral3": "/Users/macbookair/Desktop/dossier_stockage_images_de_test/CL3"
+}
+
+for path in output_dirs.values():
+    os.makedirs(path, exist_ok=True)
+
+# Délais d'attente en secondes
+delays = {
+    "Corps_Haut": 1,
+    "Corps_Latéral1": 8,
+    "Corps_Latéral2": 9,
+    "Corps_Latéral3": 9
+}
+
+# === Fonction pour supprimer les anciennes images ===
+def clear_directory(directory):
+    for filename in os.listdir(directory):
+        file_path = os.path.join(directory, filename)
+        try:
+            if os.path.isfile(file_path):
+                os.remove(file_path)
+        except Exception as e:
+            print(f"❌ Erreur suppression fichier : {file_path} -> {e}")
+
+# === Fonction de rotation conditionnelle ===
+def rotate_image(frame, angle):
+    if angle == 180:
+        return cv2.rotate(frame, cv2.ROTATE_180)
+    return frame
+
+# === Déroulement principal ===
+print("▶️ Démarrage de la séquence photo avec nettoyage préalable...\n")
+
+sequence = [
+    ("Corps_Haut", False),
+    ("Corps_Latéral1", True),
+    ("Corps_Latéral2", True),
+    ("Corps_Latéral3", True)
+]
+
+# Ouverture d'une seule instance de la caméra
+cap = cv2.VideoCapture(0)
+if not cap.isOpened():
+    print("❌ Impossible d'ouvrir la caméra.")
+    exit()
+
+for view_name, rotate in sequence:
+    print(f"⏳ Attente de {delays[view_name]}s pour : {view_name}")
+    time.sleep(delays[view_name])
+    
+    ret, frame = cap.read()
+    if not ret:
+        print(f"❌ Erreur de capture : {view_name}")
+        continue
+
+    if rotate:
+        frame = rotate_image(frame, 180)
+
+    # Nettoyer le dossier et enregistrer l'image
+    output_dir = output_dirs[view_name]
+    clear_directory(output_dir)
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = os.path.join(output_dir, f"{view_name}_{timestamp}.jpg")
+    success = cv2.imwrite(filename, frame)
+
+    if success:
+        print(f"✅ Photo enregistrée : {filename}")
+    else:
+        print(f"❌ Échec de l'enregistrement : {filename}")
+
+cap.release()
+print("\n✅ Toutes les photos ont été capturées, les anciens fichiers supprimés automatiquement.")
+

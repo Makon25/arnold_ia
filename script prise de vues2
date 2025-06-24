@@ -1,0 +1,74 @@
+import cv2
+from datetime import datetime
+import time
+import os
+import glob
+
+# === Mapping des noms pour le format standardisé ===
+view_mapping = {
+    "Corps_Haut": "CH",
+    "Corps_Latéral1": "CL1",
+    "Corps_Latéral2": "CL2",
+    "Corps_Latéral3": "CL3"
+}
+
+# === Configuration des dossiers ===
+base_dir = "/Users/macbookair/Desktop/dossier_imag_test"
+output_dirs = {
+    view: os.path.join(base_dir, code) for view, code in view_mapping.items()
+}
+for path in output_dirs.values():
+    os.makedirs(path, exist_ok=True)
+
+# === Délais pour chaque vue ===
+delays = {
+    "Corps_Haut": 1,
+    "Corps_Latéral1": 8,
+    "Corps_Latéral2": 9,
+    "Corps_Latéral3": 9
+}
+
+# === Génération d'un identifiant commun ===
+identifiant = datetime.now().strftime("%d%m%y-%H%M%S")
+
+# === Fonction de capture ===
+def take_photo(view_name, output_dir, code, rotate180=False):
+    # Supprimer les anciennes images de ce dossier
+    for f in glob.glob(os.path.join(output_dir, f"{code}_*.jpg")):
+        os.remove(f)
+
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        print("❌ Impossible d'ouvrir la caméra.")
+        return
+
+    time.sleep(1)
+    ret, frame = cap.read()
+    if ret:
+        if rotate180:
+            frame = cv2.rotate(frame, cv2.ROTATE_180)
+        filename = os.path.join(output_dir, f"{code}_{identifiant}.jpg")
+        cv2.imwrite(filename, frame)
+        print(f"✅ Photo enregistrée : {filename}")
+    else:
+        print(f"❌ Erreur lors de la capture de {view_name}")
+    cap.release()
+
+# === Lancement de la séquence ===
+print("▶️ Lancement de la séquence photo automatisée...\n")
+
+sequence = [
+    ("Corps_Haut", False),
+    ("Corps_Latéral1", True),
+    ("Corps_Latéral2", True),
+    ("Corps_Latéral3", True)
+]
+
+for view_name, rotate in sequence:
+    code = view_mapping[view_name]
+    print(f"⏳ Attente de {delays[view_name]}s pour capture : {view_name}")
+    time.sleep(delays[view_name])
+    take_photo(view_name, output_dirs[view_name], code, rotate)
+
+print(f"\n✅ Toutes les photos ont été capturées avec l'identifiant commun : {identifiant}")
+

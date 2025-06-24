@@ -1,0 +1,164 @@
+import tensorflow as tf
+import numpy as np
+import cv2
+import os
+from datetime import datetime
+import tkinter as tk
+from tkinter import ttk, messagebox, scrolledtext
+
+# === Chemins configurables ===
+base_dir = "/Users/macbookair/Desktop/Projet_IA/dossier_imag_test/Bases_image_test"
+resultats_dir = "/Users/macbookair/Desktop/Projet_IA/Analyse_resultats"
+os.makedirs(resultats_dir, exist_ok=True)
+
+model_ch_path = "/Users/macbookair/Desktop/Projet_IA/MODELE_IA2/converted_CH_V2_tflite (1)/model_unquant.tflite"
+labels_ch_path = "/Users/macbookair/Desktop/Projet_IA/MODELE_IA2/converted_CH_V2_tflite (1)/labels.txt"
+model_cl_path = "/Users/macbookair/Desktop/Projet_IA/MODELE_IA2/converted_CL_V2_tflite/model_unquant.tflite"
+labels_cl_path = "/Users/macbookair/Desktop/Projet_IA/MODELE_IA2/converted_CL_V2_tflite/labels.txt"
+
+# === Chargement des modèles et labels ===
+interpreter_haut = tf.lite.Interpreter(model_path=model_ch_path)
+interpreter_haut.allocate_tensors()
+interpreter_lat = tf.lite.Interpreter(model_path=model_cl_path)
+interpreter_lat.allocate_tensors()
+
+def charger_labels(path):
+    with open(path, "r") as f:
+        return [line.strip().split(" ", 1)[1] for line in f.readlines() if " " in line]
+
+labels_haut = charger_labels(labels_ch_path)
+labels_lat = charger_labels(labels_cl_path)
+
+MAPPING = {
+    "CH_BON": "bonne", "CH_REMANU": "remanufacturable", "CH_RECY": "recyclable",
+    "CL_BON": "bonne", "CL_REPA": "réparable", "CL_RECY": "recyclable"
+}
+
+gravité = {
+    "Le corps est en bon état": 0, "Le corps doit être réparé": 1,
+    "Le corps nécessite un remanufacturing": 2, "Le corps est à recycler": 3,
+    "Le corps est à vérifier manuellement": 4
+}
+
+def determiner_etat_unitaire(haut, lat):
+    grille = {
+        ("bonne", "bonne"): "Le corps est en bon état",
+        ("bonne", "réparable"): "Le corps doit être réparé",
+        ("bonne", "remanufacturable"): "Le corps nécessite un remanufacturing",
+        ("bonne", "recyclable"): "Le corps est à recycler",
+        ("réparable", "bonne"): "Le corps doit être réparé",
+        ("réparable", "réparable"): "Le corps doit être réparé",
+        ("réparable", "remanufacturable"): "Le corps nécessite un remanufacturing",
+        ("réparable", "recyclable"): "Le corps est à recycler",
+        ("remanufacturable", "bonne"): "Le corps nécessite un remanufacturing",
+        ("remanufacturable", "réparable"): "Le corps nécessite un remanufacturing",
+        ("remanufacturable", "remanufacturable"): "Le corps nécessite un remanufacturing",
+        ("remanufacturable", "recyclable"): "Le corps est à recycler",
+        ("recyclable", "bonne"): "Le corps est à recycler",
+        ("recyclable", "réparable"): "Le corps est à recycler",
+        ("recyclable", "remanufacturable"): "Le corps est à recycler",
+        ("recyclable", "recyclable"): "Le corps est à recycler",
+    }
+    return grille.get((haut, lat), "Le corps est à vérifier manuellement")
+
+def determiner_etat_global(haut, list_lat):
+    decisions = [determiner_etat_unitaire(haut, lat) for lat in list_lat]
+    decisions.sort(key=lambda x: gravité.get(x, 4), reverse=True)
+    return decisions[0], decisions
+
+def predict_image(image, interpreter, labels):
+    input_details = interpreter.get_input_details()
+    output_details = interpreter.get_output_details()
+    img = cv2.resize(image, (input_details[0]['shape'][2], input_details[0]['shape'][1]))
+    img = np.expand_dims(img.astype(np.uint8 if input_details[0]['dtype'] == np.uint8 else np.float32) / 255.0, axis=0)
+    interpreter.set_tensor(input_details[0]['index'], img)
+    interpreter.invoke()
+    output_data = interpreter.get_tensor(output_details[0]['index'])[0]
+    predicted_index = np.argmax(output_data)
+    label_brut = labels[predicted_index]
+    label = MAPPING.get(label_brut, "non_reconnu")
+    confidence = output_data[predicted_index]
+    return label, confidence
+
+def analyser_piece_et_generer(piece_nom):
+    dossier = os.path.join(base_dir, piece_nom)
+    try:
+        img_ch = cv2.imread(find_image(os.path.join(dossier, "CH")))
+        img_cl1 = cv2.imread(find_image(os.path.join(dossier, "CL1")))
+        img_cl2 = cv2.imread(find_image(os.path.join(dossier, "CL2")))
+        img_cl3 = cv2.imread(find_image(os.path.join(dossier, "CL3")))
+    except Exception as e:
+        return f"❌ Erreur : {e}"
+
+    res_ch, conf_ch = predict_image(img_ch, interpreter_haut, labels_haut)
+    res_cl1, conf_cl1 = predict_image(img_cl1, interpreter_lat, labels_lat)
+    res_cl2, conf_cl2 = predict_image(img_cl2, interpreter_lat, labels_lat)
+    res_cl3, conf_cl3 = predict_image(img_cl3, interpreter_lat, labels_lat)
+
+    final_decision, _ = determiner_etat_global(res_ch, [res_cl1, res_cl2, res_cl3])
+    now = datetime.now().strftime("%Y%m%d_%H%M%S")
+    rapport = f"""Analyse de la pièce : {piece_nom}
+
+Vue CH : {res_ch} ({conf_ch:.2%})
+Vue CL1 : {res_cl1} ({conf_cl1:.2%})
+Vue CL2 : {res_cl2} ({conf_cl2:.2%})
+Vue CL3 : {res_cl3} ({conf_cl3:.2%})
+
+🧠 Décision finale : {final_decision}
+"""
+    path = os.path.join(resultats_dir, f"analyse_{piece_nom}_{now}.txt")
+    with open(path, "w") as f:
+        f.write(rapport)
+    return rapport
+
+def find_image(folder):
+    for file in os.listdir(folder):
+        if file.lower().endswith((".jpg", ".jpeg", ".png")):
+            return os.path.join(folder, file)
+    raise FileNotFoundError(f"Aucune image trouvée dans : {folder}")
+
+def chercher_dernier_rapport(piece_nom):
+    fichiers = sorted([
+        f for f in os.listdir(resultats_dir)
+        if piece_nom.lower() in f.lower() and f.endswith(".txt")
+    ], reverse=True)
+    if fichiers:
+        with open(os.path.join(resultats_dir, fichiers[0]), "r") as f:
+            return f.read()
+    return None
+
+# === Interface
+def lancer_interface():
+    def tester_piece():
+        piece = combo.get()
+        if not piece:
+            messagebox.showwarning("Attention", "Veuillez sélectionner une pièce.")
+            return
+
+        rapport = chercher_dernier_rapport(piece)
+        if not rapport:
+            rapport = analyser_piece_et_generer(piece)
+        rapport_box.delete(1.0, tk.END)
+        rapport_box.insert(tk.END, rapport)
+
+    root = tk.Tk()
+    root.title("Diagnostic des pièces")
+
+    tk.Label(root, text="Choisir une pièce :").pack(pady=5)
+    pieces = sorted([d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d))])
+    combo = ttk.Combobox(root, values=pieces, state="readonly", width=30)
+    combo.pack()
+
+    tk.Button(root, text="🧠 Lancer le diagnostic", command=tester_piece).pack(pady=10)
+
+    rapport_box = scrolledtext.ScrolledText(root, width=70, height=20)
+    rapport_box.pack(padx=10, pady=10)
+
+    root.mainloop()
+
+# === Lancement
+if __name__ == "__main__":
+    lancer_interface()
+
+
+
