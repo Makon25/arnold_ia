@@ -1,0 +1,55 @@
+import os
+import cv2
+import numpy as np
+from PIL import Image, ImageEnhance
+import random
+
+def add_noise(img):
+    """Ajoute un bruit gaussien à l'image"""
+    noise = np.random.normal(0, 25, img.shape).astype(np.uint8)
+    noisy_img = cv2.add(img, noise)
+    return noisy_img
+
+def augment_image(image_path, output_folder, num_augmented=30):
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
+
+    base_img = Image.open(image_path).convert("RGB")
+    base_cv = cv2.imread(image_path)
+    base_name = os.path.splitext(os.path.basename(image_path))[0]
+
+    for i in range(num_augmented):
+        img = base_img.copy()
+
+        # Rotation
+        angle = random.randint(-20, 20)
+        img = img.rotate(angle)
+
+        # Luminosité
+        brightness = ImageEnhance.Brightness(img)
+        img = brightness.enhance(random.uniform(0.8, 1.3))
+
+        # Contraste
+        contrast = ImageEnhance.Contrast(img)
+        img = contrast.enhance(random.uniform(0.8, 1.3))
+
+        # Flip horizontal
+        if random.random() > 0.5:
+            img = img.transpose(Image.FLIP_LEFT_RIGHT)
+
+        # Sauvegarde
+        output_path = os.path.join(output_folder, f"{base_name}_aug{i}.jpg")
+        img.save(output_path)
+
+        # Ajout de bruit (facultatif pour une version)
+        if i % 5 == 0:
+            noisy = add_noise(base_cv)
+            noisy_name = os.path.join(output_folder, f"{base_name}_noisy{i}.jpg")
+            cv2.imwrite(noisy_name, noisy)
+
+    print(f"{num_augmented} images générées dans : {output_folder}")
+
+# Exemple d'utilisation :
+image_path = "/Users/macbookair/Desktop/dossier_imag_test/CORPS_LATERAL2/Corps_Latéral3_280525-1609.JPG"  # ➜ Mets ici ton image de base
+output_folder = "/Users/macbookair/Desktop/BD_corps_version 3/Corps_latéral/Corps_lateral_reparable"
+augment_image(image_path, output_folder, num_augmented=25)
