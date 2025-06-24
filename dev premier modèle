@@ -1,0 +1,134 @@
+import tensorflow as tf
+import numpy as np
+import cv2
+import os
+
+# === Chargement des modèles TFLite ===
+interpreter_haut = tf.lite.Interpreter(model_path="/Users/macbookair/Desktop/Projet_IA/MODELE_IA2/converted_CH_V2_tflite (1)/model_unquant.tflite")
+interpreter_haut.allocate_tensors()
+
+interpreter_lat = tf.lite.Interpreter(model_path="/Users/macbookair/Desktop/Projet_IA/MODELE_IA2/converted_CL_V2_tflite/model_unquant.tflite")
+interpreter_lat.allocate_tensors()
+
+# === Chargement des labels (en ignorant les indices au début)
+with open("/Users/macbookair/Desktop/Projet_IA/MODELE_IA2/converted_CH_V2_tflite (1)/labels.txt", "r") as f:
+    labels_haut = [line.strip().split(" ", 1)[1] for line in f.readlines()]
+
+with open("/Users/macbookair/Desktop/Projet_IA/MODELE_IA2/converted_CL_V2_tflite/labels.txt", "r") as f:
+    labels_lat = [line.strip().split(" ", 1)[1] for line in f.readlines()]
+
+# === Mappage brut vers classes normalisées
+MAPPING = {
+    "CH_BON": "bonne",
+    "CH_REMANU": "remanufacturable",
+    "CH_RECY": "recyclable",
+    "CL_BON": "bonne",
+    "CL_REPA": "réparable",
+    "CL_RECY": "recyclable"
+}
+
+# === Gravité des décisions
+gravité = {
+    "Le corps est en bon état": 0,
+    "Le corps doit être réparé": 1,
+    "Le corps nécessite un remanufacturing": 2,
+    "Le corps est à recycler": 3,
+    "Le corps est à vérifier manuellement": 4
+}
+
+# === Grille de croisement
+def determiner_etat_unitaire(haut, lat):
+    grille = {
+        ("bonne", "bonne"): "Le corps est en bon état",
+        ("bonne", "réparable"): "Le corps doit être réparé",
+        ("bonne", "remanufacturable"): "Le corps nécessite un remanufacturing",
+        ("bonne", "recyclable"): "Le corps est à recycler",
+        ("réparable", "bonne"): "Le corps doit être réparé",
+        ("réparable", "réparable"): "Le corps doit être réparé",
+        ("réparable", "remanufacturable"): "Le corps nécessite un remanufacturing",
+        ("réparable", "recyclable"): "Le corps est à recycler",
+        ("remanufacturable", "bonne"): "Le corps nécessite un remanufacturing",
+        ("remanufacturable", "réparable"): "Le corps nécessite un remanufacturing",
+        ("remanufacturable", "remanufacturable"): "Le corps nécessite un remanufacturing",
+        ("remanufacturable", "recyclable"): "Le corps est à recycler",
+        ("recyclable", "bonne"): "Le corps est à recycler",
+        ("recyclable", "réparable"): "Le corps est à recycler",
+        ("recyclable", "remanufacturable"): "Le corps est à recycler",
+        ("recyclable", "recyclable"): "Le corps est à recycler",
+    }
+    return grille.get((haut, lat), "Le corps est à vérifier manuellement")
+
+# === Combinaison globale
+def determiner_etat_global(haut, list_lat):
+    decisions = [determiner_etat_unitaire(haut, lat) for lat in list_lat]
+    decisions.sort(key=lambda x: gravité.get(x, 4), reverse=True)
+    return decisions[0], decisions
+
+# === Prédiction avec mappage
+def predict_image(image, interpreter, labels):
+    input_details = interpreter.get_input_details()
+    output_details = interpreter.get_output_details()
+
+    input_shape = input_details[0]['shape']
+    input_dtype = input_details[0]['dtype']
+
+    img = cv2.resize(image, (input_shape[2], input_shape[1]))
+
+    if input_dtype == np.uint8:
+        img = np.expand_dims(img.astype(np.uint8), axis=0)
+    else:
+        img = np.expand_dims(img.astype(np.float32) / 255.0, axis=0)
+
+    interpreter.set_tensor(input_details[0]['index'], img)
+    interpreter.invoke()
+    output_data = interpreter.get_tensor(output_details[0]['index'])
+
+    predicted_index = np.argmax(output_data[0])
+    raw_label = labels[predicted_index].upper()  # mise en majuscule
+
+    mapped_label = MAPPING.get(raw_label)
+    if mapped_label is None:
+        raise ValueError(f"Classe inconnue dans MAPPING : '{raw_label}'")
+
+    confidence = output_data[0][predicted_index]
+    return mapped_label, confidence
+
+# === Lecture des images et prédiction globale
+def analyser_piece_par_dossier(ch_dir, cl1_dir, cl2_dir, cl3_dir):
+    def load_first_image(path):
+        for file in os.listdir(path):
+            if file.lower().endswith((".jpg", ".jpeg", ".png")):
+                return cv2.imread(os.path.join(path, file))
+        raise FileNotFoundError(f"Aucune image trouvée dans : {path}")
+
+    img_haut = load_first_image(ch_dir)
+    img_lat1 = load_first_image(cl1_dir)
+    img_lat2 = load_first_image(cl2_dir)
+    img_lat3 = load_first_image(cl3_dir)
+
+    # Prédictions
+    res_haut, conf_haut = predict_image(img_haut, interpreter_haut, labels_haut)
+    res_lat1, conf_lat1 = predict_image(img_lat1, interpreter_lat, labels_lat)
+    res_lat2, conf_lat2 = predict_image(img_lat2, interpreter_lat, labels_lat)
+    res_lat3, conf_lat3 = predict_image(img_lat3, interpreter_lat, labels_lat)
+
+    lat_states = [res_lat1, res_lat2, res_lat3]
+    etat_final, decisions = determiner_etat_global(res_haut, lat_states)
+
+    # Affichage
+    print("\n=== Analyse de la pièce ===")
+    print(f"Vue de haut : {res_haut} ({conf_haut:.2%})")
+    print(f"Vue latérale 1 : {res_lat1} ({conf_lat1:.2%}) → {determiner_etat_unitaire(res_haut, res_lat1)}")
+    print(f"Vue latérale 2 : {res_lat2} ({conf_lat2:.2%}) → {determiner_etat_unitaire(res_haut, res_lat2)}")
+    print(f"Vue latérale 3 : {res_lat3} ({conf_lat3:.2%}) → {determiner_etat_unitaire(res_haut, res_lat3)}")
+    print(f"\n🧠 Décision finale : {etat_final}")
+
+# === Lancement
+analyser_piece_par_dossier(
+    "/Users/macbookair/Desktop/Projet_IA/dossier_imag_test/Bases_image_test/Piece20/CH",
+    "/Users/macbookair/Desktop/Projet_IA/dossier_imag_test/Bases_image_test/Piece20/CL1",
+    "/Users/macbookair/Desktop/Projet_IA/dossier_imag_test/Bases_image_test/Piece20/CL2",
+    "/Users/macbookair/Desktop/Projet_IA/dossier_imag_test/Bases_image_test/Piece20/CL3"
+)
+
+
